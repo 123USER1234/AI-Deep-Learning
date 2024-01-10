@@ -1,0 +1,194 @@
+# Import files into drive and add code to allow access to google drive
+from google.colab import drive
+drive.mount('/content/drive', force_remount=True)
+# the files are now available
+
+Mounted at /content/drive
+
+
+train_dir = '/content/drive/MyDrive/train'  
+test_dir = '/content/drive/MyDrive/test'    
+
+import os
+print(len(os.listdir('/content/drive/MyDrive/train/Defective')))
+print(len(os.listdir('/content/drive/MyDrive/train/Non defective')))
+print(len(os.listdir('/content/drive/MyDrive/test/Defective')))
+print(len(os.listdir('/content/drive/MyDrive/test/Non defective')))
+
+150
+150
+11
+11
+
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# The following creates ImageDataGenerator for the training set
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2  # divides and splits 20% of the images for validation set
+)
+
+Found 240 images belonging to 2 classes.
+Found 59 images belonging to 2 classes.
+
+# Next, load the training data and prepare it for processing
+train_data = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=(256,256),
+    batch_size=32,
+    class_mode='binary',  # specifying 'binary' as it is a binary classification (defective vs. non-defective)
+    subset='training'  # selecting 'training' fot the training dataset
+)
+
+# Second part is to create ImageDataGenerator for the validation dataset
+validation_datagen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2  # it utilizes the same split as the training dataset
+)
+
+# import and prepare the validation dataset for processing
+validation_data = validation_datagen.flow_from_directory(
+    train_dir,
+    target_size=(256,256),
+    batch_size=32,
+    class_mode='binary',
+    subset='validation'  # specifying 'validation' for the validation dataset
+)
+
+from tensorflow import keras
+from keras import Sequential
+from keras.layers import Dense,Conv2D,MaxPooling2D,Flatten
+
+resnet_model = Sequential()    # the pre-trained model being utilized is ResNet50
+pretrained_model = tf.keras.applications.ResNet50(include_top = False, # due to having different dimension to the images
+                                                input_shape = (256,256,3),
+                                                pooling = 'max', classes = 2,
+                                                weights = 'imagenet')
+for layer in pretrained_model.layers:
+    layer.trainable = False  # every layer within Resnet50 does not enable traning
+
+resnet_model.add(pretrained_model)
+resnet_model.add(Flatten())
+resnet_model.add(Dense(512, activation = 'relu'))
+resnet_model.add(Dense(1, activation = 'sigmoid'))
+
+Downloading data from https://storage.googleapis.com/tensorflow/keras-applications/resnet/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5
+94765736/94765736 [==============================] - 1s 0us/step
+
+resnet_model.summary()
+
+Model: "sequential"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ resnet50 (Functional)       (None, 2048)              23587712  
+                                                                 
+ flatten (Flatten)           (None, 2048)              0         
+                                                                 
+ dense (Dense)               (None, 512)               1049088   
+                                                                 
+ dense_1 (Dense)             (None, 1)                 513       
+                                                                 
+=================================================================
+Total params: 24637313 (93.98 MB)
+Trainable params: 1049601 (4.00 MB)
+Non-trainable params: 23587712 (89.98 MB)
+_________________________________________________________________
+
+from keras.optimizers import Adam
+resnet_model.compile(optimizer=Adam(learning_rate=0.001),loss='binary_crossentropy',metrics=['accuracy']) #binary_crossentropy - binary classification
+
+history = resnet_model.fit(train_data, epochs=3, validation_data=validation_data)
+
+Epoch 1/3
+8/8 [==============================] - 143s 17s/step - loss: 5.2261 - accuracy: 0.4667 - val_loss: 0.8739 - val_accuracy: 0.3390
+Epoch 2/3
+8/8 [==============================] - 81s 10s/step - loss: 2.8766 - accuracy: 0.5333 - val_loss: 3.3965 - val_accuracy: 0.4915
+Epoch 3/3
+8/8 [==============================] - 81s 10s/step - loss: 2.2892 - accuracy: 0.4458 - val_loss: 0.8711 - val_accuracy: 0.4237
+
+import matplotlib.pyplot as plt
+
+plt.plot(history.history['accuracy'],color='red',label='train')
+plt.plot(history.history['val_accuracy'],color='blue',label='validation')
+plt.legend()
+plt.show()
+
+plt.plot(history.history['loss'],color='red',label='train')
+plt.plot(history.history['val_loss'],color='blue',label='validation')
+plt.legend()
+plt.show()
+
+test_datagen = ImageDataGenerator(rescale=1./255)
+test_data = test_datagen.flow_from_directory(
+    test_dir,
+    target_size=(256,256),
+    batch_size=32,
+    class_mode='binary'
+)
+
+Found 22 images belonging to 2 classes.
+
+
+#predict the test data
+predictions = resnet_model.predict(test_data)
+print(predictions)
+
+1/1 [==============================] - 6s 6s/step
+[[0.46251792]
+ [0.5408982 ]
+ [0.8699593 ]
+ [0.5896917 ]
+ [0.4753098 ]
+ [0.46796668]
+ [0.6126568 ]
+ [0.6392317 ]
+ [0.53598803]
+ [0.53194374]
+ [0.42317387]
+ [0.37105703]
+ [0.7724435 ]
+ [0.74127114]
+ [0.45394257]
+ [0.6936566 ]
+ [0.39128006]
+ [0.39371064]
+ [0.8580454 ]
+ [0.568998  ]
+ [0.5642474 ]
+ [0.4382973 ]]
+
+len(predictions)
+22
+
+from sklearn.metrics import confusion_matrix, classification_report
+
+# With the assumption of the availability of ground truth labels (true_labels) and predicted labels (predictions)
+true_labels = test_data.classes
+predicted_labels = (predictions > 0.5).astype(int)  # Adjust the threshold as needed
+
+# Calculating the Confusion Matrix
+cm = confusion_matrix(true_labels, predicted_labels)
+
+# Printing the Confusion Matrix
+print("Confusion Matrix:")
+print(cm)
+
+# Printing the Classification Report
+print("Classification Report:")
+print(classification_report(true_labels, predicted_labels))
+
+Confusion Matrix:
+[[4 7]
+ [5 6]]
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.44      0.36      0.40        11
+           1       0.46      0.55      0.50        11
+
+    accuracy                           0.45        22
+   macro avg       0.45      0.45      0.45        22
+weighted avg       0.45      0.45      0.45        22
+
